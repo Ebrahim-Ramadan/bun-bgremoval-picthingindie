@@ -1,58 +1,60 @@
 const express = require('express');
 const sharp = require('sharp');
 const { Rembg } = require('@xixiyahaha/rembg-node');
-const bodyParser = require('body-parser');
+const multer = require('multer');
+const cors = require('cors');
 
-// Initialize express
 const app = express();
 const port = 3000;
 
-// Increase the limit of the request body size
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+app.use(cors());
 
-// POST route to upload and process the image
-app.post('/remove-bg', async (req, res) => {
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+
+app.post('/remove-bg', upload.single('image'), async (req : Request, res : Response) => {
   try {
-    if (!req.body.image) {
-      return res.status(400).send('No image data provided');
+    // @ts-ignore
+    if (!req.file) {
+    // @ts-ignore
+      return res.status(400).json({ error: 'No image file provided' });
     }
+    // @ts-ignore
+    const buffer = req.file.buffer;
 
-    // Extract base64 data
-    const base64Data = req.body.image.replace(/^data:image\/\w+;base64,/, "");
-    const buffer = Buffer.from(base64Data, 'base64');
+    const compressedBuffer = await sharp(buffer)
+    .resize(800, 800, { 
+      fit: sharp.fit.inside,
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: 70 }) 
+    .toBuffer();
+    
+    const input = sharp(compressedBuffer);
 
-    const input = sharp(buffer);
-
-    // optional arguments
-    const rembg = new Rembg({
-      logging: true,
-    });
-
-    // Remove background
+    const rembg = new Rembg({ logging: true });
     const output = await rembg.remove(input);
-
-    // Convert output to webp format and send response
-    const processedBuffer = await output.webp().toBuffer();
-
-    // Convert processed buffer back to base64
-    const processedBase64 = processedBuffer.toString('base64');
-
-    // Send the processed image as base64
-    res.json({ image: `data:image/webp;base64,${processedBase64}` });
+    
+    const processedBuffer = await output.png().toBuffer();
+    // @ts-ignore
+    res.set('Content-Type', 'image/png');
+    // @ts-ignore
+    res.send(processedBuffer);
   } catch (error) {
     console.error('Error processing image:', error);
-    res.status(500).send('Internal Server Error');
+    // @ts-ignore
+    res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 });
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).send('Something broke!');
+    // @ts-ignore
+app.use((err,  res : Response,) => {
+  console.error('Unhandled Error:', err.stack);
+    // @ts-ignore
+  res.status(500).json({ error: 'Something broke!', details: err.message });
 });
 
-// Start the server
+
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+  console.log(`Server is running on http:`, port);
 });
